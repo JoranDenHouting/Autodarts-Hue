@@ -1,0 +1,6 @@
+{
+  "require": {
+    "sqmk/phue": "*",
+    "vlucas/phpdotenv": "^5.5"
+  }
+}

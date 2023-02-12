@@ -1,0 +1,110 @@
+#!/usr/bin/env php
+<?php
+
+require_once 'vendor/autoload.php';
+
+echo "Philips Hue Bridge Finder", "\n\n";
+
+echo "Checking meethue.com if the bridge has phoned home:", "\n";
+
+$response = @file_get_contents('https://discovery.meethue.com/');
+
+// Don't continue if bad response
+if ($response === false) {
+    echo "\tRequest failed. Ensure that you have internet connection.";
+    exit(1);
+}
+
+echo "\tRequest succeeded", "\n\n";
+
+// Parse the JSON response
+$bridges = json_decode($response);
+
+echo "Number of bridges found: ", count($bridges), "\n";
+
+if ( count($bridges) == 1 ) {
+    echo "Just one bridge found, continue to set-up API user. \n";
+
+    $bridge = $bridges[0];
+
+    $client = new \Phue\Client($bridge->internalipaddress);
+
+    echo "Testing connection to bridge at {$bridge->internalipaddress}", "\n";
+
+    try {
+        $client->sendCommand(
+            new \Phue\Command\Ping
+        );
+    } catch (\Phue\Transport\Exception\ConnectionException $e) {
+        echo "Issue connecting to bridge", "\n";
+
+        exit(1);
+    }
+
+    // Let's create a user
+    echo "Attempting to create user Autodarts:", "\n",
+    "Press the Bridge's button!", "\n",
+    "Waiting.";
+
+    // Try X times to create user
+    $maxTries = 60;
+    for ($i = 1; $i <= $maxTries; ++$i) {
+        try {
+            $response = $client->sendCommand(
+                new \Phue\Command\CreateUser("Autodarts")
+            );
+
+            echo "\n\n", "Successfully created new user. Go on and select a room to use the light(s) of:", "\n\n";
+
+            $client = new \Phue\Client($bridge->internalipaddress, $response->username);
+
+            $new_groups = [];
+            foreach ($client->getGroups() as $group) {
+                $groupid = $group->getId();
+                $new_groups[$groupid] = $group;
+                echo "\t", "{$group->getId()} - {$group->getName()}", "\n", "\t\t Type: ", $group->getType(), "\n", "\t\t Lights: ", implode(
+                    ', ', $group->getLightIds()), "\n";
+
+            }
+
+            $group_id = readline('What group would you like to use?: ');
+            $group_id = (int)$group_id;
+
+            @file_put_contents(".env",
+"BRIDGE_IP=\"{$bridge->internalipaddress}\"s
+BRIDGE_PORT=\"{$bridge->port}\"
+TYPE=\"Autodarts\"
+BRIDGE_USER=\"{$response->username}\"
+GROUP_ID=\"{$new_groups[$group_id]->getId()}\"
+GROUP_NAME=\"{$new_groups[$group_id]->getName()}\"
+GROUP_TYPE=\"{$new_groups[$group_id]->getType()}\"
+");
+            echo "\n\n", "Set up complete....", "\n\n";
+
+            break;
+        } catch (\Phue\Transport\Exception\LinkButtonException $e) {
+            echo ".";
+        } catch (Exception $e) {
+            echo "\n\n", "Failure to create user. Please try again!",
+            "\n", "Reason: {$e->getMessage()}", "\n\n";
+
+            break;
+        }
+
+        sleep(1);
+    }
+
+
+} else {
+    echo "Found multiple bridges, please do a manual set-up. \n";
+
+    // Iterate through each bridge
+    foreach ($bridges as $key => $bridge) {
+        echo "\tBridge #", ++$key, "\n";
+        echo "\t\tID: ", $bridge->id, "\n";
+        echo "\t\tInternal IP Address: ", $bridge->internalipaddress, "\n";
+        echo "\t\tPort: ", $bridge->port, "\n";
+        echo "\n";
+    }
+
+}
